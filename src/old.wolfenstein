@@ -1,0 +1,220 @@
+#include<iostream>
+#include<cmath>
+#include<SDL3/SDL.h>
+#include<chrono>
+
+#define WIDTH 800
+#define HEIGHT 800
+
+#define MAP_WIDTH 24
+#define MAP_HEIGHT 24
+
+#define WALL_HEIGHT 400
+#define MS 200
+
+void clear_fb(uint32_t* frame_buffer){
+    memset(frame_buffer, 0, sizeof(frame_buffer) * WIDTH * HEIGHT);
+}
+
+uint32_t map_rgb(SDL_Surface* surface, uint8_t r, uint8_t g, uint8_t b){
+    return SDL_MapSurfaceRGB(surface, r, g, b);
+}
+
+void draw_pixel(uint32_t* frame_buffer ,int x, int y, uint32_t color){
+    if(x < 0 || x >= WIDTH || y < 0 || y >= HEIGHT) return;
+
+    frame_buffer[y * WIDTH + x] = color;
+}
+
+void vertical_stripe(uint32_t* frame_buffer, int x, int top_y, int bottom_y, uint32_t color){
+    if(x < 0 || x >= WIDTH || top_y < 0 || top_y >= HEIGHT || bottom_y < 0 || bottom_y >= HEIGHT) return;
+    for(int y = top_y; y <= bottom_y; y++){
+        frame_buffer[y * WIDTH + x] = color;
+    }
+}
+
+void rotate_vector(double& x, double& y, double theta){
+    double px = x;
+    double py = y;
+    x = (px * cos(theta)) - (py * sin(theta));
+    y = (sin(theta) * px) + (cos(theta) * py);
+}
+
+int main(){
+    
+    SDL_Window* window;
+    SDL_Surface* surface;
+
+    uint32_t* fb;
+
+    bool running = true;
+
+    int map[MAP_WIDTH * MAP_HEIGHT] = {
+        1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,
+        1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
+        1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
+        1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
+        1,0,0,0,0,0,2,2,2,2,2,0,0,0,0,3,0,3,0,3,0,0,0,1,
+        1,0,0,0,0,0,2,0,0,0,2,0,0,0,0,0,0,0,0,0,0,0,0,1,
+        1,0,0,0,0,0,2,0,0,0,2,0,0,0,0,3,0,0,0,3,0,0,0,1,
+        1,0,0,0,0,0,2,0,0,0,2,0,0,0,0,0,0,0,0,0,0,0,0,1,
+        1,0,0,0,0,0,2,2,0,2,2,0,0,0,0,3,0,3,0,3,0,0,0,1,
+        1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
+        1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
+        1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
+        1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
+        1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
+        1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
+        1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
+        1,4,4,4,4,4,4,4,4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
+        1,4,0,4,0,0,0,0,4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
+        1,4,0,0,0,0,5,0,4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
+        1,4,0,4,0,0,0,0,4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
+        1,4,0,4,4,4,4,4,4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
+        1,4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
+        1,4,4,4,4,4,4,4,4,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,
+        1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1
+    };
+
+    double posX = 3, posY = 3;
+    double dirX = -1, dirY = 0;
+    double planeX = 0, planeY = 0.66;
+
+    using namespace std::chrono;
+
+    time_point<high_resolution_clock> before;
+
+    double deltaTime = 0;
+
+    SDL_Init(SDL_INIT_VIDEO);
+    
+    window = SDL_CreateWindow(
+        "Doom SDL3",
+        WIDTH,
+        HEIGHT,
+        SDL_WINDOW_RESIZABLE
+    );
+
+    surface = SDL_GetWindowSurface(window);
+    fb = (uint32_t*)surface->pixels;
+
+    if(window == NULL){
+        SDL_LogError(SDL_LOG_CATEGORY_ERROR, "Could not create window: %s\n", SDL_GetError());
+        return 1;
+    }
+
+    while (running)
+    {
+        before = high_resolution_clock::now();
+        SDL_Event event;
+
+        while (SDL_PollEvent(&event))
+        {
+            if(event.type == SDL_EVENT_QUIT){
+                running = false;
+            }
+            else if(event.type == SDL_EVENT_KEY_DOWN){
+                if(event.key.key == SDLK_RIGHT){
+                    rotate_vector(dirX, dirY, -1/(2*SDL_PI_D) * );
+                    rotate_vector(planeX, planeY, -1/(2*SDL_PI_D));
+                }
+                else if(event.key.key == SDLK_LEFT){
+                    rotate_vector(dirX, dirY, 1/(2*SDL_PI_D));
+                    rotate_vector(planeX, planeY, 1/(2*SDL_PI_D));
+                }
+                else if(event.key.key == SDLK_UP){
+                    //if(map[(int)(posY + dirY * MS * deltaTime) * WIDTH + (int)(posX + dirX * MS * deltaTime)] == 0){
+                    //    posX = (int)(posX + dirX * MS * deltaTime);
+                    //    posY = (int)(posY + dirY * MS * deltaTime);
+                    //}
+                    posX = posX + dirX * MS * deltaTime;
+                    posY = posY + dirY * MS * deltaTime; 
+                }
+            }
+        }
+
+        SDL_LockSurface(surface);
+        clear_fb(fb);
+
+        for(int x = 0; x < WIDTH; x++){
+            double cameraX = 2 * x / (double)WIDTH - 1;
+            double rayDirX = dirX + planeX * cameraX;
+            double rayDirY = dirY + planeY * cameraX;
+
+            int mapX = (int)posX;
+            int mapY = (int)posY;
+
+            double deltaDistX = (rayDirX == 0) ? 1e30 : abs(1 / rayDirX);
+            double deltaDistY = (rayDirY == 0) ? 1e30 : abs(1 / rayDirY);
+            double perpWallDist;
+
+            int stepX;
+            int stepY;
+
+            double sideDistX;
+            double sideDistY;
+
+            int hit = 0;
+            int side;
+
+            if(rayDirX < 0){
+                stepX = -1;
+                sideDistX = (posX - mapX) * deltaDistX;
+            }
+            else{
+                stepX = 1;
+                sideDistX = (mapX + 1 - posX) * deltaDistX;
+            }
+
+            if(rayDirY < 0){
+                stepY = -1;
+                sideDistY = (posY - mapY) * deltaDistY;
+            }
+            else{
+                stepY = 1;
+                sideDistY = (mapY + 1 - posY) * deltaDistY;
+            }
+
+            while (hit == 0)
+            {
+                if(sideDistX < sideDistY){
+                    sideDistX += deltaDistX;
+                    mapX += stepX;
+                    side = 0;
+                }
+                else{
+                    sideDistY += deltaDistY;
+                    mapY += stepY;
+                    side = 1;
+                }
+                if(map[mapY * MAP_WIDTH + mapX] > 0) hit = 1;
+            }
+
+            if(side == 0) perpWallDist = (sideDistX - deltaDistX);
+            else          perpWallDist = (sideDistY - deltaDistY);       
+
+            int line_height = (int)(WALL_HEIGHT / perpWallDist);
+            
+            uint32_t color;
+            switch(map[mapY * MAP_WIDTH + mapX]){
+                case 1: color = map_rgb(surface, 255, 255, 255); break;
+                case 2: color = map_rgb(surface, 255, 0, 0); break;
+                case 3: color = map_rgb(surface, 0, 255, 0); break;
+                case 4: color = map_rgb(surface, 0, 0, 255); break;
+            }
+
+            if(side == 1) color = color/2;
+
+            vertical_stripe(fb, x, HEIGHT/2 - line_height/2, HEIGHT/2 + line_height/2, color);
+        }
+
+        SDL_UnlockSurface(surface);
+        SDL_UpdateWindowSurface(window);
+
+        duration<double> after {high_resolution_clock::now() - before};
+        deltaTime =  after.count();
+    }    
+
+    SDL_DestroyWindow(window);
+    SDL_Quit();
+}
